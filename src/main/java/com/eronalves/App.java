@@ -51,7 +51,7 @@ public class App {
         while (true) {
           String readLine = br.readLine();
           if (readLine == null) break;
-          sb.append(readLine);
+          sb.append(readLine + "\n");
         }
       } catch (IOException e) {
       }
