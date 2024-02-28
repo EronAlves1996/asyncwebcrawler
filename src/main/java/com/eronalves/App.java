@@ -6,15 +6,17 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
+import java.net.ProtocolException;
 import java.net.URL;
 import java.net.URLConnection;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 
-import org.omg.CORBA.CompletionStatus;
+import javax.annotation.processing.Completions;
 
 /**
  * Hello world!
@@ -40,31 +42,51 @@ public class App {
   public CompletableFuture<String> crawl(URL url) {
     CompletableFuture<String> cf = new CompletableFuture<>();
     this.executor.execute(() -> {
-      URLConnection conn = null;
+      System.out.println("Open connection");
+      HttpURLConnection conn = null;
       try {
-        conn = url.openConnection();
+        conn = (HttpURLConnection) url.openConnection();
       } catch (IOException e) {
         cf.completeExceptionally(e);
+        return;
       }
-      conn.setConnectTimeout(10);
+      conn.setConnectTimeout(10000);
       conn.setRequestProperty("Accept-Charset", "UTF-8");
       try {
+        conn.setRequestMethod("GET");
+      } catch (ProtocolException e) {
+        cf.completeExceptionally(e);
+        return;
+      }
+      try {
+        System.out.println("Connect");
         conn.connect();
       } catch (IOException e) {
         cf.completeExceptionally(e);
+        return;
+      }
+      try {
+        System.out.println(((HttpURLConnection) conn).getResponseCode());
+      } catch (IOException e) {
+        cf.completeExceptionally(e);
+        return;
       }
       StringBuilder sb = new StringBuilder();
+      System.out.println("Connected");
       try (InputStream response = conn.getInputStream();
           InputStreamReader isr = new InputStreamReader(response,
               StandardCharsets.UTF_8);
           BufferedReader br = new BufferedReader(isr)) {
+        System.out.println("Extracting body");
         while (true) {
           String readLine = br.readLine();
+          System.out.println(readLine);
           if (readLine == null) break;
           sb.append(readLine + "\n");
         }
       } catch (IOException e) {
         cf.completeExceptionally(e);
+        return;
       }
       cf.complete(sb.toString());
     });
@@ -72,9 +94,25 @@ public class App {
     return cf;
   }
 
+  public CompletableFuture<List<String>> extractLinks(
+      CompletableFuture<String> pageContent) {
+
+  }
+
+  public void shutdown() {
+    this.executor.shutdown();
+  }
+
   public static void main(String[] args) throws MalformedURLException {
     App app = new App();
-    CompletableFuture<String> crawl = app.crawl(new URL("https://g1.com.br"));
+    CompletableFuture<String> crawl = app
+        .crawl(new URL("https://www.g1.com.br"));
+    crawl.thenAccept(System.out::println);
+    crawl.handle((s, t) -> {
+      System.out.println(t);
+      return s;
+    });
+    app.shutdown();
   }
 
 }
