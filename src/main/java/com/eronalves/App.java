@@ -15,8 +15,13 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 
 import javax.annotation.processing.Completions;
+
+import org.jsoup.Jsoup;
+import org.jsoup.select.Elements;
 
 /**
  * Hello world!
@@ -96,7 +101,13 @@ public class App {
 
   public CompletableFuture<List<String>> extractLinks(
       CompletableFuture<String> pageContent) {
-
+    return pageContent
+        .thenApply(Jsoup::parse)
+        .thenApply(d -> d.select("a[href]"))
+        .thenApply(Elements::spliterator)
+        .thenApply(s -> StreamSupport.stream(s, false))
+        .thenApply(s -> s.map(e -> e.attr("abs:href"))
+            .collect(Collectors.toList()));
   }
 
   public void shutdown() {
