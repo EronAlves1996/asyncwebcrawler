@@ -10,6 +10,7 @@ import java.net.ProtocolException;
 import java.net.URL;
 import java.net.URLConnection;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -114,15 +115,31 @@ public class App {
     this.executor.shutdown();
   }
 
+  public CompletableFuture<String> fetchAll(List<String> links) {
+    CompletableFuture[] array = links.stream().map(t -> {
+      try {
+        return new URL(t);
+      } catch (MalformedURLException e) {
+        throw new RuntimeException(e.getCause());
+      }
+    })
+        .map(this::crawl)
+        .toArray(CompletableFuture[]::new);
+
+    return CompletableFuture.allOf(array)
+        .thenApply(v -> Arrays.stream(array)
+            .map(CompletableFuture::join)
+            .map(String.class::cast)
+            .collect(Collectors.joining(",")));
+  }
+
   public static void main(String[] args) throws MalformedURLException {
     App app = new App();
     CompletableFuture<String> crawl = app
         .crawl(new URL("https://www.g1.com.br"));
-    crawl.thenAccept(System.out::println);
-    crawl.handle((s, t) -> {
-      System.out.println(t);
-      return s;
-    });
+    CompletableFuture<List<String>> links = app.extractLinks(crawl);
+    CompletableFuture<String> content = links
+        .thenCompose(list -> app.fetchAll(list));
     app.shutdown();
   }
 
