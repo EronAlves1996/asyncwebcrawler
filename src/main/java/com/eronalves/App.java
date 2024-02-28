@@ -138,8 +138,9 @@ public class App {
     CompletableFuture<String> crawl = app
         .crawl(new URL("https://www.g1.com.br"));
     CompletableFuture<List<String>> links = app.extractLinks(crawl);
-    CompletableFuture<String> content = links
-        .thenCompose(list -> app.fetchAll(list));
+    links
+        .thenCompose(list -> app.fetchAll(list))
+        .thenAccept(System.out::println);
     app.shutdown();
   }
 
