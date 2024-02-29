@@ -10,12 +10,14 @@ import java.net.ProtocolException;
 import java.net.URL;
 import java.net.URLConnection;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
@@ -46,13 +48,15 @@ public class App {
   }
 
   public CompletableFuture<String> crawl(URL url) {
+    System.out.println("Received " + url);
     CompletableFuture<String> cf = new CompletableFuture<>();
     this.executor.execute(() -> {
-      System.out.println("Open connection");
+      System.out.println("Fetching " + url);
       HttpURLConnection conn = null;
       try {
         conn = (HttpURLConnection) url.openConnection();
       } catch (IOException e) {
+        System.out.println(e);
         cf.completeExceptionally(e);
         return;
       }
@@ -62,39 +66,35 @@ public class App {
         conn.setRequestMethod("GET");
       } catch (ProtocolException e) {
         cf.completeExceptionally(e);
+        System.out.println(e);
         return;
       }
       try {
-        System.out.println("Connect");
         conn.connect();
       } catch (IOException e) {
         cf.completeExceptionally(e);
-        return;
-      }
-      try {
-        System.out.println(((HttpURLConnection) conn).getResponseCode());
-      } catch (IOException e) {
-        cf.completeExceptionally(e);
+        System.out.println(e);
         return;
       }
       StringBuilder sb = new StringBuilder();
-      System.out.println("Connected");
       try (InputStream response = conn.getInputStream();
           InputStreamReader isr = new InputStreamReader(response,
               StandardCharsets.UTF_8);
           BufferedReader br = new BufferedReader(isr)) {
-        System.out.println("Extracting body");
         while (true) {
           String readLine = br.readLine();
-          System.out.println(readLine);
           if (readLine == null) break;
           sb.append(readLine + "\n");
         }
       } catch (IOException e) {
         cf.completeExceptionally(e);
+        System.out.println(e);
         return;
       }
       cf.complete(sb.toString());
+      conn.disconnect();
+      System.out.println("Completed");
+      return;
     });
 
     return cf;
@@ -111,37 +111,58 @@ public class App {
             .collect(Collectors.toList()));
   }
 
-  public void shutdown() {
+  public void shutdown() throws InterruptedException {
     this.executor.shutdown();
   }
 
   public CompletableFuture<String> fetchAll(List<String> links) {
-    CompletableFuture[] array = links.stream().map(t -> {
+    List<URL> urls = new ArrayList<>();
+
+    for (String link : links) {
+      System.out.println(link);
       try {
-        return new URL(t);
+        urls.add(new URL(link));
       } catch (MalformedURLException e) {
-        throw new RuntimeException(e.getCause());
+        // TODO Auto-generated catch block
+        e.printStackTrace();
       }
-    })
-        .map(this::crawl)
+    }
+    System.out.println(urls);
+    CompletableFuture[] array = urls.stream().map(this::crawl)
         .toArray(CompletableFuture[]::new);
 
     return CompletableFuture.allOf(array)
-        .thenApply(v -> Arrays.stream(array)
-            .map(CompletableFuture::join)
-            .map(String.class::cast)
-            .collect(Collectors.joining(",")));
+        .handle((t, r) -> {
+          if (r != null) {
+
+            System.out.println(r);
+            return "";
+          } else {
+            return Arrays.stream(array)
+                .map(CompletableFuture::join)
+                .map(String.class::cast)
+                .collect(Collectors.joining("\n"));
+          }
+        });
   }
 
-  public static void main(String[] args) throws MalformedURLException {
+  public static void main(String[] args)
+      throws MalformedURLException, InterruptedException {
     App app = new App();
     CompletableFuture<String> crawl = app
-        .crawl(new URL("https://www.g1.com.br"));
+        .crawl(new URL("https://g1.com.br"));
     CompletableFuture<List<String>> links = app.extractLinks(crawl);
-    links
-        .thenCompose(list -> app.fetchAll(list))
-        .thenAccept(System.out::println);
-    app.shutdown();
+    CompletableFuture<String> l = links
+        .thenCompose(list -> app.fetchAll(list));
+    app.extractLinks(l).thenAccept(s -> System.out.println(s.size()))
+        .thenRun(() -> {
+          try {
+            app.shutdown();
+          } catch (InterruptedException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+          }
+        });
   }
 
 }
